@@ -4,17 +4,14 @@ const { Users, Courses } = require('../models');
 const bcryptjs = require('bcryptjs');
 const auth = require('basic-auth');
 
-
+// Middleware to authenticate the request
 const authenticateUser = async (req, res, next) => {
     const credentials = auth(req);
-
     if (!credentials) {
         console.warn('Auth header not found');
         return res.status(401).json({ message: 'Access Denied' });
     }
-
     const user = await Users.findOne({ where: { emailAddress: credentials.name } });
-
     if (!user || !(await bcryptjs.compare(credentials.pass, user.password))) {
         const message = user 
             ? `Authentication failure for email: ${credentials.name}` 
@@ -22,11 +19,11 @@ const authenticateUser = async (req, res, next) => {
         console.warn(message);
         return res.status(401).json({ message: 'Access Denied' });
     }
-
     console.log(`Authentication successful for email: ${user.emailAddress}`);
     req.currentUser = user;
     next();
 };
+
 
 router.get('/users', authenticateUser, async (req, res) => {
     try {
@@ -37,7 +34,6 @@ router.get('/users', authenticateUser, async (req, res) => {
             lastName: user.lastName,
             emailAddress: user.emailAddress
         });
-        res.location('/').status(201).end();
     } catch (error) {
         if (error.name === 'SequelizeValidationError') {
             res.status(400).json({ message: error.errors.map(e => e.message) });
@@ -47,9 +43,13 @@ router.get('/users', authenticateUser, async (req, res) => {
     }
 });
 
+// Route to create a new user
 router.post('/users', async (req, res) => {
     try {
         const { firstName, lastName, emailAddress, password } = req.body;
+        if (!firstName || !lastName || !emailAddress || !password) {
+            return res.status(400).json({ message: 'All fields are required' });
+        }
         const hashedPassword = await bcryptjs.hash(password, 10);
         const user = await Users.create({
             firstName,
@@ -67,6 +67,7 @@ router.post('/users', async (req, res) => {
     }
 });
 
+// Route to return a list of courses
 router.get('/courses', async (req, res) => {
     try {
         const courses = await Courses.findAll();
@@ -76,6 +77,7 @@ router.get('/courses', async (req, res) => {
     }
 });
 
+// Route to return a course
 router.get('/courses/:id', async (req, res) => {
     try {
         const course = await Courses.findByPk(req.params.id);
@@ -85,9 +87,18 @@ router.get('/courses/:id', async (req, res) => {
     }
 });
 
+// Route to create a new course
 router.post('/courses', authenticateUser, async (req, res) => {
     try {
-        const course = await Courses.create(req.body);
+        const { title, description } = req.body;
+        if (!title || !description) {
+            return res.status(400).json({ message: 'Title and description are required' });
+        }
+        const course = await Courses.create({
+            title,
+            description,
+            userId: req.currentUser.id
+        });
         res.status(201).json(course);
     } catch (error) {
         if (error.name === 'SequelizeValidationError') {
@@ -98,14 +109,22 @@ router.post('/courses', authenticateUser, async (req, res) => {
     }
 });
 
+// Route to update a course
 router.put('/courses/:id', authenticateUser, async (req, res) => {
     try {
+        const { title, description } = req.body;
+        if (!title || !description) {
+            return res.status(400).json({ message: 'Title and description are required' });
+        }
         const course = await Courses.findByPk(req.params.id);
         if (course) {
-            await course.update(req.body);
+            await course.update({
+                title,
+                description
+            });
             res.status(204).end();
         } else {
-            res.status(404).json({ message: 'Course Not Found' });
+            res.status(404).json({ message: 'Course not found' });
         }
     } catch (error) {
         if (error.name === 'SequelizeValidationError') {
@@ -116,6 +135,7 @@ router.put('/courses/:id', authenticateUser, async (req, res) => {
     }
 });
 
+// Route to delete a course
 router.delete('/courses/:id', authenticateUser, async (req, res) => {
     try {
         const course = await Courses.findByPk(req.params.id);
