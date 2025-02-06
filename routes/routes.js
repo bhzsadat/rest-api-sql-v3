@@ -47,9 +47,6 @@ router.get('/users', authenticateUser, async (req, res) => {
 router.post('/users', async (req, res) => {
     try {
         const { firstName, lastName, emailAddress, password } = req.body;
-        if (!firstName || !lastName || !emailAddress || !password) {
-            return res.status(400).json({ message: 'All fields are required' });
-        }
         const hashedPassword = await bcryptjs.hash(password, 10);
         const user = await Users.create({
             firstName,
@@ -57,20 +54,30 @@ router.post('/users', async (req, res) => {
             emailAddress,
             password: hashedPassword
         });
-        res.status(201).json(user);
+        res.status(201).location(`/users/${user.id}`).end();
     } catch (error) {
         if (error.name === 'SequelizeValidationError') {
-            res.status(400).json({ message: error.errors.map(e => e.message) });
+            const errors = error.errors.map(e => e.message);
+            res.status(400).json({ message: errors });
+        } else if (error.name === 'SequelizeUniqueConstraintError') {
+            res.status(400).json({ message: 'The email address is already in use.' });
         } else {
             res.status(500).json({ message: error.message });
         }
     }
 });
 
+
 // Route to return a list of courses
 router.get('/courses', async (req, res) => {
     try {
-        const courses = await Courses.findAll();
+        const courses = await Courses.findAll({
+            include: [{
+                model: Users,
+                as: 'User',
+                attributes: ['id', 'firstName', 'lastName', 'emailAddress']
+            }]
+        });
         res.status(200).json(courses);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -80,8 +87,18 @@ router.get('/courses', async (req, res) => {
 // Route to return a course
 router.get('/courses/:id', async (req, res) => {
     try {
-        const course = await Courses.findByPk(req.params.id);
-        res.status(200).json(course);
+        const course = await Courses.findByPk(req.params.id, {
+            include: [{
+                model: Users,
+                as: 'User',
+                attributes: ['id', 'firstName', 'lastName', 'emailAddress']
+            }]
+        });
+        if (course) {
+            res.status(200).json(course);
+        } else {
+            res.status(404).json({ message: 'Course not found' });
+        }
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -91,18 +108,16 @@ router.get('/courses/:id', async (req, res) => {
 router.post('/courses', authenticateUser, async (req, res) => {
     try {
         const { title, description } = req.body;
-        if (!title || !description) {
-            return res.status(400).json({ message: 'Title and description are required' });
-        }
         const course = await Courses.create({
             title,
             description,
             userId: req.currentUser.id
         });
-        res.status(201).json(course);
+        res.status(201).location(`/courses/${course.id}`).end();
     } catch (error) {
         if (error.name === 'SequelizeValidationError') {
-            res.status(400).json({ message: error.errors.map(e => e.message) });
+            const errors = error.errors.map(e => e.message);
+            res.status(400).json({ message: errors });
         } else {
             res.status(500).json({ message: error.message });
         }
@@ -113,9 +128,6 @@ router.post('/courses', authenticateUser, async (req, res) => {
 router.put('/courses/:id', authenticateUser, async (req, res) => {
     try {
         const { title, description } = req.body;
-        if (!title || !description) {
-            return res.status(400).json({ message: 'Title and description are required' });
-        }
         const course = await Courses.findByPk(req.params.id);
         if (course) {
             await course.update({
@@ -128,7 +140,8 @@ router.put('/courses/:id', authenticateUser, async (req, res) => {
         }
     } catch (error) {
         if (error.name === 'SequelizeValidationError') {
-            res.status(400).json({ message: error.errors.map(e => e.message) });
+            const errors = error.errors.map(e => e.message);
+            res.status(400).json({ message: errors });
         } else {
             res.status(500).json({ message: error.message });
         }
